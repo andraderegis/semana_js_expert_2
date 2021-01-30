@@ -35,9 +35,11 @@ class Business {
             .setOnConnectionOpened(this.onPeerConnectionOpened())
             .setOnCallReceived(this.onPeerCallReceived())
             .setOnPeerStreamReceived(this.onPeerStreamReceived())
+            .setOnCallError(this.onPeerCallError())
+            .setOnCallClose(this.onPeerCallClose())
             .build();
 
-        this.addVideoStream('test01')
+        this.addVideoStream(this.currentPeer.id);
     }
 
     addVideoStream(userId, stream = this.currentStream) {
@@ -50,14 +52,14 @@ class Business {
         });
     }
 
-    onPeerCallReceived = function () {
+    onPeerCallReceived() {
         return call => {
             console.log('answering call', call);
             call.answer(this.currentStream);
         }
     }
 
-    onPeerConnectionOpened = function () {
+    onPeerConnectionOpened() {
         return (peer) => {
             const id = peer.id;
 
@@ -65,14 +67,27 @@ class Business {
             this.socket.emit('join-room', this.room, id);
         }
     }
+    onPeerCallClose() {
+        return (call) => {
+            console.log('call closed!', call.peer);
+        }
+    }
 
-    onPeerError = function () {
+    onPeerCallError() {
+        return (call, error) => {
+            console.log(`an call error ocurred on call ${call.peer}!`, error);
+
+            this.view.removeVideoElement(call.peer);
+        }
+    }
+
+    onPeerError() {
         return error => {
             console.error('error on peer!', error);
         }
     }
 
-    onPeerStreamReceived = function () {
+    onPeerStreamReceived() {
         return (call, stream) => {
             const callerId = call.peer;
 
@@ -84,16 +99,24 @@ class Business {
         }
     }
 
-    onUserConnected = function () {
+    onUserConnected() {
         return userId => {
             console.log('user connected!', userId);
             this.currentPeer.call(userId, this.currentStream);
         }
     }
 
-    onUserDisconnected = function () {
+    onUserDisconnected() {
         return userId => {
             console.log('user disconnected!', userId);
+
+            if (this.peers.has(userId)) {
+                this.peers.get(userId).call.close();
+                this.peers.delete(userId)
+            }
+
+            this.view.setParticipants(this.peers.size);
+            this.view.removeVideoElement(userId);
         }
     }
 }

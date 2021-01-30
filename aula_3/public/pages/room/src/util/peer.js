@@ -8,25 +8,20 @@ class PeerBuilder {
         this.onCallReceived = defaultFunctionValue;
         this.onConnectionOpened = defaultFunctionValue;
         this.onPeerStreamReceived = defaultFunctionValue;
+        this.onCallClose = defaultFunctionValue;
+        this.onCallError = defaultFunctionValue;
     }
 
-    build() {
-        const peer = new Peer(...this.peerConfig);
+    setOnCallClose(fn) {
+        this.onCallClose = fn;
 
-        peer.on('error', this.onError);
-        peer.on('call', this._prepareCallEvent.bind(this));
-
-        return new Promise(resolve => peer.on('open', id => {
-            this.onConnectionOpened(peer);
-
-            return resolve(peer);
-        }));
+        return this;
     }
 
-    _prepareCallEvent(call) {
-        call.on('stream', stream => this.onPeerStreamReceived(call, stream));
+    setOnCallError(fn) {
+        this.onCallError = fn;
 
-        this.onCallReceived(call);
+        return this;
     }
 
     setOnCallReceived(fn) {
@@ -52,5 +47,47 @@ class PeerBuilder {
 
         return this;
     }
-}
 
+    _prepareCallEvent(call) {
+        call.on('stream', stream => this.onPeerStreamReceived(call, stream));
+        call.on('error', error => this.onCallError(call, error));
+        call.on('close', _ => this.onCallClose(call));
+
+        this.onCallReceived(call);
+    }
+
+    // adicionar o comportamento dos eventos de call também para quem ligar!
+    _preparePeerInstanceFunction(peerModule) {
+        class PeerCustomModule extends peerModule { }
+
+        const peerCall = PeerCustomModule.prototype.call;
+        const context = this;
+
+        PeerCustomModule.prototype.call = function (id, stream) {
+            const call = peerCall.apply(this, [id, stream]);
+            // aqui acontece a "mágica". Interceptamos o call e adicionamos todos os eventos da 
+            // chamada para quem liga também
+            context._prepareCallEvent(call);
+
+            return call;
+        }
+
+        return PeerCustomModule;
+    }
+
+    build() {
+        // const peer = new Peer(...this.peerConfig);
+        const PeerCustomInstance = this._preparePeerInstanceFunction(Peer);
+        const peer = new PeerCustomInstance(...this.peerConfig);
+
+        peer.on('error', this.onError);
+        peer.on('call', this._prepareCallEvent.bind(this));
+
+        return new Promise(resolve => peer.on('open', id => {
+            this.onConnectionOpened(peer);
+
+            return resolve(peer);
+        }));
+    }
+
+}
